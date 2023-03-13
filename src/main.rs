@@ -244,6 +244,9 @@ struct NonIdleResponse {
     audio_enabled: bool,
     procs: ExistResult,
     procs_enabled: bool,
+    checks_blocking: bool,
+    unblock_delay: u64,
+    unblock_delay_remain: u64,
     is_blocked: bool,
 }
 impl std::fmt::Display for NonIdleResponse {
@@ -268,6 +271,8 @@ impl std::fmt::Display for NonIdleResponse {
             let name = format!("{}{}", name, enabled);
             let _ = write!(f, "{:<16}: {}\n", name, s);
         }
+        let _ = write!(f, "{:<16}: {}\n", "Unblocking Delay", self.unblock_delay);
+        let _ = write!(f, "{:<16}: {}\n", "Unblocking delayed?", self.unblock_delay_remain);
         let _ = write!(f, "{:<16}: {}\n", "BLOCKED?", self.is_blocked);
         Ok(())
     }
@@ -532,7 +537,7 @@ fn idle_w() -> IdleResult {
         .map(|t| parse_w_time(t))
         .filter_map(|t| t.ok())
         .collect();
-    Ok(idle_times.iter().cloned().fold(std::u32::MAX, std::cmp::min))
+    Ok(idle_times.iter().cloned().fold(u32::MAX, std::cmp::min))
 }
 
 /// Call idle command for each X display
@@ -623,7 +628,7 @@ fn idle_fn(cmd: &str, args: Vec<&str>) -> IdleResult {
                         let mut idle_str = String::from_utf8(output.stdout)
                             .unwrap_or(String::new());
                         idle_str.pop();
-                        let idle = idle_str.parse::<u32>().unwrap_or(std::u32::MAX)/1000;
+                        let idle = idle_str.parse::<u32>().unwrap_or(u32::MAX)/1000;
                         println_vb4!("      - idle: {}", idle);
                         display_mins.push(idle);
                     },
@@ -635,7 +640,7 @@ fn idle_fn(cmd: &str, args: Vec<&str>) -> IdleResult {
     }
     match display_mins.len() {
         0 => Err(CircadianError("No displays found.".to_string())),
-        _ => Ok(display_mins.iter().fold(std::u32::MAX, |acc, x| std::cmp::min(acc,*x)))
+        _ => Ok(display_mins.iter().fold(u32::MAX, |acc, x| std::cmp::min(acc,*x)))
     }
 }
 
@@ -826,6 +831,7 @@ struct CircadianLaunchOptions {
 struct CircadianConfig {
     verbosity: usize,
     idle_time: u64,
+    unblock_delay: u64,
     auto_wake: Option<String>,
     on_idle: Option<String>,
     on_wake: Option<String>,
@@ -843,7 +849,19 @@ fn read_config(file_path: &str) -> Result<CircadianConfig, CircadianError> {
     println!("Reading config from file: {}", file_path);
     let i = Ini::load_from_file(file_path)?;
     let mut config: CircadianConfig = Default::default();
-    if let Some(section) = i.section(Some("settings".to_owned())) {
+
+    fn parse_time(s: Option<&str>, default: u64) -> u64 {
+        s.map_or(default, |x| if x.len() > 0 {
+            let (body,suffix) = x.split_at(x.len()-1);
+            let num: u64 = match suffix {
+                "m" => body.parse::<u64>().unwrap_or(0) * 60,
+                "h" => body.parse::<u64>().unwrap_or(0) * 60 * 60,
+                _ => x.parse::<u64>().unwrap_or(default),
+            };
+            num
+        } else {default})
+    }
+    if let Some(section) = i.section(Some("actions".to_owned())) {
         let verbosity: usize = section.get("verbosity")
             .and_then(|x| match x {
                 x if x.len() > 0 => { x.parse::<usize>().ok() },
@@ -853,18 +871,9 @@ fn read_config(file_path: &str) -> Result<CircadianConfig, CircadianError> {
         let verbosity = std::cmp::min(verbosity, MAX_VERBOSITY);
         VERBOSITY.store(verbosity, Ordering::SeqCst);
         config.verbosity = verbosity;
-    }
-    if let Some(section) = i.section(Some("actions".to_owned())) {
-        config.idle_time = section.get("idle_time")
-            .map_or(0, |x| if x.len() > 0 {
-                let (body,suffix) = x.split_at(x.len()-1);
-                let num: u64 = match suffix {
-                    "m" => body.parse::<u64>().unwrap_or(0) * 60,
-                    "h" => body.parse::<u64>().unwrap_or(0) * 60 * 60,
-                    _ => x.parse::<u64>().unwrap_or(0),
-                };
-                num
-            } else {0});
+
+        config.idle_time = parse_time(section.get("idle_time"), 0);
+        config.unblock_delay = parse_time(section.get("unblock_delay"), 0);
         config.auto_wake = section.get("auto_wake")
             .and_then(|x| if x.len() > 0 {Some(x.to_owned())} else {None});
         config.on_idle = section.get("on_idle")
@@ -903,9 +912,9 @@ fn test_idle(config: &CircadianConfig, start: i64) -> IdleResponse {
     let tty = idle_w();
     let xssstate = idle_xssstate();
     let xprintidle = idle_xprintidle();
-    let tty_idle = *tty.as_ref().unwrap_or(&std::u32::MAX);
-    let x11_idle = std::cmp::min(*xssstate.as_ref().unwrap_or(&std::u32::MAX),
-                                 *xprintidle.as_ref().unwrap_or(&std::u32::MAX));
+    let tty_idle = *tty.as_ref().unwrap_or(&u32::MAX);
+    let x11_idle = std::cmp::min(*xssstate.as_ref().unwrap_or(&u32::MAX),
+                                 *xprintidle.as_ref().unwrap_or(&u32::MAX));
     let wake_remain = std::cmp::max(0, start + (config.idle_time as i64) - now) as u32;
     let min_idle: u32 = match (config.tty_input, config.x11_input) {
         (true,true) => std::cmp::min(tty_idle, x11_idle) as u32,
@@ -921,23 +930,28 @@ fn test_idle(config: &CircadianConfig, start: i64) -> IdleResponse {
         xssstate_enabled: config.x11_input,
         xprintidle_idle: xprintidle,
         xprintidle_enabled: config.x11_input,
-        wake_remain: wake_remain,
-        tty_idle: tty_idle,
+        wake_remain,
+        tty_idle,
         tty_enabled: config.tty_input,
-        x11_idle: x11_idle,
+        x11_idle,
         x11_enabled: config.x11_input,
-        min_idle: min_idle,
+        min_idle,
         idle_target: config.idle_time,
-        idle_remain: idle_remain,
+        idle_remain,
         is_idle: idle_remain == 0 && wake_remain == 0,
     }
 }
-fn test_nonidle(config: &CircadianConfig) -> NonIdleResponse {
-    let cpu_load = thresh_cpu(CpuHistory::Min1,
-                              config.max_cpu_load.unwrap_or(999.0),
-                              std::cmp::PartialOrd::lt);
-    let cpu_load_enabled = config.max_cpu_load.is_some() &&
-        config.max_cpu_load.unwrap() < 999.0;
+fn test_nonidle(
+    config: &CircadianConfig,
+    was_blocked: bool,
+    first_delayed_unblock_time: Option<i64>,
+) -> NonIdleResponse {
+    let cpu_load = thresh_cpu(
+        CpuHistory::Min1,
+        config.max_cpu_load.unwrap_or(999.0),
+        std::cmp::PartialOrd::lt,
+    );
+    let cpu_load_enabled = config.max_cpu_load.is_some() && config.max_cpu_load.unwrap() < 999.0;
     let ssh = exist_net_connection(NetConnection::SSH);
     let ssh_enabled = config.ssh_block;
     let smb = exist_net_connection(NetConnection::SMB);
@@ -955,25 +969,44 @@ fn test_nonidle(config: &CircadianConfig) -> NonIdleResponse {
         .map(|x| x.iter().fold(false, |acc,p| acc || *p));
     let procs_enabled = config.process_block.len() > 0;
 
-    let blocked = (cpu_load_enabled && *cpu_load.as_ref().unwrap_or(&true)) ||
+    let checks_blocking = (cpu_load_enabled && *cpu_load.as_ref().unwrap_or(&true)) ||
         (ssh_enabled && *ssh.as_ref().unwrap_or(&true)) ||
         (smb_enabled && *smb.as_ref().unwrap_or(&true)) ||
         (nfs_enabled && *nfs.as_ref().unwrap_or(&true)) ||
         (audio_enabled && *audio.as_ref().unwrap_or(&true)) ||
         (procs_enabled && *procs.as_ref().unwrap_or(&true));
+
+    let blocked;
+    let unblock_delay_remain;
+    // Check if we need to apply block_delay
+    if was_blocked && !checks_blocking {
+        let time_blocked = first_delayed_unblock_time.map_or(0, |first_delayed_unblock_time| {
+            time::OffsetDateTime::now_utc().unix_timestamp() - first_delayed_unblock_time
+        });
+        unblock_delay_remain =
+            std::cmp::max(config.unblock_delay as i64 - time_blocked as i64, 0) as u64;
+        blocked = unblock_delay_remain > 0
+    } else {
+        blocked = checks_blocking;
+        unblock_delay_remain = 0;
+    }
+
     NonIdleResponse {
-        cpu_load: cpu_load,
-        cpu_load_enabled: cpu_load_enabled,
-        ssh: ssh,
-        ssh_enabled: ssh_enabled,
-        smb: smb,
-        smb_enabled: smb_enabled,
-        nfs: nfs,
-        nfs_enabled: nfs_enabled,
-        audio: audio,
-        audio_enabled: audio_enabled,
-        procs: procs,
-        procs_enabled: procs_enabled,
+        cpu_load,
+        cpu_load_enabled,
+        ssh,
+        ssh_enabled,
+        smb,
+        smb_enabled,
+        nfs,
+        nfs_enabled,
+        audio,
+        audio_enabled,
+        procs,
+        procs_enabled,
+        checks_blocking,
+        unblock_delay: config.unblock_delay,
+        unblock_delay_remain,
         is_blocked: blocked,
     }
 }
@@ -1107,11 +1140,13 @@ fn main() {
     // override user locale to make all command outputs uniform (e.g. when parsing column headers or dates/times)
     std::env::set_var("LC_ALL", "C");
 
+    let mut is_blocked: bool = false;
+    let mut first_delayed_unblock_time: Option<i64> = None;
     if launch_opts.test {
         println!("Got --test: running idle test and exiting.");
         let start = time::OffsetDateTime::now_utc().unix_timestamp();
         let idle = test_idle(&config, start);
-        let tests = test_nonidle(&config);
+        let tests = test_nonidle(&config, is_blocked, first_delayed_unblock_time);
         println!("Idle Detection Summary:\n{}{}", idle, tests);
         std::process::exit(0);
     }
@@ -1171,8 +1206,14 @@ fn main() {
         // If it's idle, the idle command hasn't already run, and it has been
         // at least |idle_time| since the service started: enter idle state.
         if idle.is_idle && !idle_triggered {
-            let tests = test_nonidle(&config);
+            let tests = test_nonidle(&config, is_blocked, first_delayed_unblock_time);
+            if first_delayed_unblock_time.is_none() && tests.is_blocked && !tests.checks_blocking {
+                first_delayed_unblock_time = Some(time::OffsetDateTime::now_utc().unix_timestamp());
+            }
+            is_blocked = tests.is_blocked;
             if !tests.is_blocked {
+                // We are no longer blocked - unset
+                first_delayed_unblock_time = None;
                 println!("Idle state active:\n{}{}", idle, tests);
                 if let Some(ref idle_cmd) = config.on_idle {
                     println!("System suspending.");
@@ -1190,6 +1231,9 @@ fn main() {
         }
         else {
             idle_triggered = false;
+            // We are no longer blocked - unset
+            is_blocked = false;
+            first_delayed_unblock_time = None;
         }
 
         let sleep_time = std::cmp::max(idle.idle_remain, 5000);
@@ -1202,7 +1246,7 @@ fn main() {
             let signaled = SIGUSR_SIGNALED.swap(false, Ordering::SeqCst);
             if signaled {
                 let idle = test_idle(&config, start);
-                let tests = test_nonidle(&config);
+                let tests = test_nonidle(&config, is_blocked, first_delayed_unblock_time);
                 println!("Idle Detection Summary:\n{}{}", idle, tests);
             }
 
@@ -1212,7 +1256,7 @@ fn main() {
                 println!("Watchdog missed.  Wake from sleep!");
                 start = time::OffsetDateTime::now_utc().unix_timestamp();
                 let idle = test_idle(&config, start);
-                let tests = test_nonidle(&config);
+                let tests = test_nonidle(&config, is_blocked, first_delayed_unblock_time);
                 println!("Idle state on wake:\n{}{}", idle, tests);
                 if let Some(ref wake_cmd) = config.on_wake {
                     println!("System waking.");

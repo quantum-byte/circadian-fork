@@ -111,7 +111,7 @@ process_block = ^dd$,^rsync$,^apt-get$,^dpkg$,^cp$,^mv$
 # currently active.)
 #
 # This is also the minimum amount of time that Circadian must be awake before
-# it wll sleep (again).
+# it will sleep (again).
 #
 # Suffix:
 #  <none> - seconds
@@ -120,6 +120,16 @@ process_block = ^dd$,^rsync$,^apt-get$,^dpkg$,^cp$,^mv$
 #
 # Default: 120 minutes
 idle_time = 120m
+
+# Time to wait before 'unblocking' after being blocked and executing the suspend action (if idle_time heuristic also triggers).
+# Suffix:
+#  <none> - seconds
+#  m - minutes
+#  h - hours
+#
+# Default: 0 - dont wait to unblock
+unblock_delay = 0
+
 
 # Command to execute when the system is determined to have been idle for at
 # least idle_time.  Typically a suspend or hibernate command.

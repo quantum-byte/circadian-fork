@@ -22,10 +22,10 @@
  */
 extern crate regex;
 
+use regex::Regex;
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::os::linux::fs::MetadataExt;
-use regex::Regex;
 
 extern crate glob;
 use glob::glob;
@@ -47,8 +47,8 @@ use users::get_user_by_name;
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::process::Command;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use std::os::unix::process::CommandExt;
@@ -97,7 +97,7 @@ impl std::error::Error for CircadianError {
         None
     }
 }
-impl <'a> From<&'a str> for CircadianError {
+impl<'a> From<&'a str> for CircadianError {
     fn from(error: &str) -> Self {
         CircadianError(error.to_owned())
     }
@@ -163,7 +163,7 @@ enum NetConnection {
 enum CpuHistory {
     Min1,
     Min5,
-    Min15
+    Min15,
 }
 
 #[derive(Clone)]
@@ -194,12 +194,20 @@ impl std::fmt::Display for IdleResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let result_map = vec![
             (self.w_idle.as_ref(), self.w_enabled, "w"),
-            (self.xssstate_idle.as_ref(), self.xssstate_enabled, "xssstate"),
-            (self.xprintidle_idle.as_ref(), self.xprintidle_enabled, "xprintidle"),
+            (
+                self.xssstate_idle.as_ref(),
+                self.xssstate_enabled,
+                "xssstate",
+            ),
+            (
+                self.xprintidle_idle.as_ref(),
+                self.xprintidle_enabled,
+                "xprintidle",
+            ),
         ];
-        for (var,enabled,name) in result_map {
+        for (var, enabled, name) in result_map {
             let s = match var {
-                Ok(x)  => x.to_string(),
+                Ok(x) => x.to_string(),
                 Err(e) => e.to_string(),
             };
             let enabled = match enabled {
@@ -214,7 +222,7 @@ impl std::fmt::Display for IdleResponse {
             (self.tty_idle, self.tty_enabled, "TTY (combined)"),
             (self.x11_idle, self.x11_enabled, "X11 (combined)"),
         ];
-        for (var,enabled,name) in int_map {
+        for (var, enabled, name) in int_map {
             let enabled = match enabled {
                 true => "*",
                 _ => "",
@@ -259,9 +267,9 @@ impl std::fmt::Display for NonIdleResponse {
             (self.audio.as_ref(), self.audio_enabled, "Audio"),
             (self.procs.as_ref(), self.procs_enabled, "Processes"),
         ];
-        for (var,enabled,name) in result_map {
+        for (var, enabled, name) in result_map {
             let s = match var {
-                Ok(x)  => x.to_string(),
+                Ok(x) => x.to_string(),
                 Err(e) => e.to_string(),
             };
             let enabled = match enabled {
@@ -272,7 +280,11 @@ impl std::fmt::Display for NonIdleResponse {
             let _ = write!(f, "{:<16}: {}\n", name, s);
         }
         let _ = write!(f, "{:<16}: {}\n", "Unblocking Delay", self.unblock_delay);
-        let _ = write!(f, "{:<16}: {}\n", "Unblocking delayed?", self.unblock_delay_remain);
+        let _ = write!(
+            f,
+            "{:<16}: {}\n",
+            "Unblocking delayed?", self.unblock_delay_remain
+        );
         let _ = write!(f, "{:<16}: {}\n", "BLOCKED?", self.is_blocked);
         Ok(())
     }
@@ -281,65 +293,66 @@ impl std::fmt::Display for NonIdleResponse {
 static SIGUSR_SIGNALED: AtomicBool = AtomicBool::new(false);
 
 /// Set global flag when SIGUSR1 signal is received
-extern fn sigusr1_handler(_: i32) {
+extern "C" fn sigusr1_handler(_: i32) {
     SIGUSR_SIGNALED.store(true, Ordering::SeqCst);
 }
 
 /// Register SIGUSR1 signal handler
 fn register_sigusr1() -> Result<signal::SigAction, CircadianError> {
     let sig_handler = signal::SigHandler::Handler(sigusr1_handler);
-    let sig_action = signal::SigAction::new(sig_handler,
-                                            signal::SaFlags::empty(),
-                                            signal::SigSet::empty());
-    unsafe {
-        Ok(signal::sigaction(signal::SIGUSR1, &sig_action)?)
-    }
+    let sig_action = signal::SigAction::new(
+        sig_handler,
+        signal::SaFlags::empty(),
+        signal::SigSet::empty(),
+    );
+    unsafe { Ok(signal::sigaction(signal::SIGUSR1, &sig_action)?) }
 }
 
 fn command_exists(cmd: &str) -> bool {
     match Command::new(cmd)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status() {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        .status()
+    {
+        Ok(_) => true,
+        Err(_) => false,
+    }
 }
 
 /// Parse idle time strings from 'w' command into seconds
 fn parse_w_time(time_str: &str) -> Result<u32, CircadianError> {
     let mut secs: u32 = 0;
     let mut mins: u32 = 0;
-    let mut hours:u32 = 0;
+    let mut hours: u32 = 0;
     let re_sec = Regex::new(r"^\d+.\d+s$")?;
     let re_min = Regex::new(r"^\d+:\d+$")?;
     let re_hour = Regex::new(r"^\d+:\d+m$")?;
     if re_sec.is_match(time_str) {
         let time_str: &str = time_str.trim_matches('s');
-        let parts: Vec<u32> = time_str.split(".")
+        let parts: Vec<u32> = time_str
+            .split(".")
             .map(|s| str::parse::<u32>(s).unwrap_or(0))
             .collect();
         secs = *parts.get(0).unwrap_or(&0);
-    }
-    else if re_min.is_match(time_str) {
-        let parts: Vec<u32> = time_str.split(":")
+    } else if re_min.is_match(time_str) {
+        let parts: Vec<u32> = time_str
+            .split(":")
             .map(|s| str::parse::<u32>(s).unwrap_or(0))
             .collect();
         mins = *parts.get(0).unwrap_or(&0);
         secs = *parts.get(1).unwrap_or(&0);
-    }
-    else if re_hour.is_match(time_str) {
+    } else if re_hour.is_match(time_str) {
         let time_str: &str = time_str.trim_matches('m');
-        let parts: Vec<u32> = time_str.split(":")
+        let parts: Vec<u32> = time_str
+            .split(":")
             .map(|s| str::parse::<u32>(s).unwrap_or(0))
             .collect();
         hours = *parts.get(0).unwrap_or(&0);
         mins = *parts.get(1).unwrap_or(&0);
-    }
-    else {
+    } else {
         return Err(CircadianError("Invalid idle format".to_string()));
     }
-    Ok((hours*60*60) + (mins*60) + secs)
+    Ok((hours * 60 * 60) + (mins * 60) + secs)
 }
 
 // count number of fields in 'w' output
@@ -351,11 +364,10 @@ fn parse_w_time(time_str: &str) -> Result<u32, CircadianError> {
 fn count_w_fields() -> Result<usize, CircadianError> {
     let w_stdout = Stdio::piped();
     let s_stdout = Stdio::piped();
-    let mut w_output = Command::new("w")
-        .arg("-us")
-        .stdout(w_stdout).spawn()?;
+    let mut w_output = Command::new("w").arg("-us").stdout(w_stdout).spawn()?;
     let _ = w_output.wait()?;
-    let w_stdout = w_output.stdout
+    let w_stdout = w_output
+        .stdout
         .ok_or(CircadianError("w command has no output".into()))?;
     // print just the second row, the header
     let mut sed_output = Command::new("sed")
@@ -365,7 +377,8 @@ fn count_w_fields() -> Result<usize, CircadianError> {
         .stdout(s_stdout)
         .spawn()?;
     let _ = sed_output.wait()?;
-    let s_stdout = sed_output.stdout
+    let s_stdout = sed_output
+        .stdout
         .ok_or(CircadianError("w/sed command has no output".into()))?;
     let awk_output = Command::new("awk")
         .arg("{print NF}")
@@ -387,11 +400,14 @@ fn w_from_args() -> Result<(String, usize), CircadianError> {
         .arg("-us")
         .arg("CIRCADIAN_FAKEUSER")
         .output()?;
-    let w_fields: Vec<String> = w_output.stdout
+    let w_fields: Vec<String> = w_output
+        .stdout
         .lines()
         .nth(1) // second line is the header
         .ok_or(CircadianError("w command has no output".into()))??
-        .split_whitespace().map(|x| x.to_owned()).collect();
+        .split_whitespace()
+        .map(|x| x.to_owned())
+        .collect();
     let from_header = String::from("FROM");
     let (hargs, args) = match w_fields.contains(&from_header) {
         true => ("-hus".to_string(), "-us".to_string()),
@@ -403,12 +419,16 @@ fn w_from_args() -> Result<(String, usize), CircadianError> {
         .arg(&args)
         .arg("CIRCADIAN_FAKEUSER")
         .output()?;
-    let w_fields: Vec<String> = w_output.stdout
+    let w_fields: Vec<String> = w_output
+        .stdout
         .lines()
         .nth(1)
         .ok_or(CircadianError("w command has no output".into()))??
-        .split_whitespace().map(|x| x.to_owned()).collect();
-    let idx = w_fields.iter()
+        .split_whitespace()
+        .map(|x| x.to_owned())
+        .collect();
+    let idx = w_fields
+        .iter()
         .position(|x| x == &from_header)
         .ok_or(CircadianError("w command arguments invalid".into()))?;
     Ok((hargs, idx))
@@ -443,8 +463,18 @@ fn xauthority_from_cmdline(display: &str) -> Result<String, CircadianError> {
         let auth_arg = String::from("-auth");
         if split_args.contains(&auth_arg) && split_args.contains(&display) {
             // Grab the next argument after "-auth"
-            let split_args: Vec<String> = split_args.iter().rev().take_while(|s| *s != "-auth").map(|s| s.to_owned()).collect();
-            let auth_arg: &str = split_args.iter().map(|x| x.as_str()).rev().next().unwrap_or("");
+            let split_args: Vec<String> = split_args
+                .iter()
+                .rev()
+                .take_while(|s| *s != "-auth")
+                .map(|s| s.to_owned())
+                .collect();
+            let auth_arg: &str = split_args
+                .iter()
+                .map(|x| x.as_str())
+                .rev()
+                .next()
+                .unwrap_or("");
             let auth_path = PathBuf::from(auth_arg);
             // Ensure the file actually exists
             if auth_path.exists() {
@@ -455,7 +485,9 @@ fn xauthority_from_cmdline(display: &str) -> Result<String, CircadianError> {
         }
     }
 
-    Err(CircadianError("No auth file specified on command line.".into()))
+    Err(CircadianError(
+        "No auth file specified on command line.".into(),
+    ))
 }
 
 fn xauthority_for_uid(uid: u32, display: &str) -> String {
@@ -477,12 +509,14 @@ fn xauthority_for_uid(uid: u32, display: &str) -> String {
     let mut getent_output = match Command::new("getent")
         .arg("passwd")
         .arg(uid.to_string())
-        .stdout(getent_stdout).spawn() {
-            Ok(w) => w,
-            _ => return default,
-        };
+        .stdout(getent_stdout)
+        .spawn()
+    {
+        Ok(w) => w,
+        _ => return default,
+    };
     let _ = match getent_output.wait() {
-        Ok(_) => {},
+        Ok(_) => {}
         _ => return default,
     };
     let getent_stdout = match getent_output.stdout {
@@ -495,15 +529,17 @@ fn xauthority_for_uid(uid: u32, display: &str) -> String {
         .arg("-d:")
         .arg("-f6")
         .stdin(getent_stdout)
-        .output() {
-            Ok(o) => o,
-            _ => return default,
-        };
+        .output()
+    {
+        Ok(o) => o,
+        _ => return default,
+    };
 
     // look for ~/.Xauthority for the specified user
     let homedir = String::from_utf8(cut_output.stdout)
         .unwrap_or(default.clone())
-        .trim().to_owned();
+        .trim()
+        .to_owned();
     let mut homedir = PathBuf::from(homedir);
     homedir.push(".Xauthority");
 
@@ -519,11 +555,10 @@ fn xauthority_for_uid(uid: u32, display: &str) -> String {
 fn idle_w() -> IdleResult {
     let num_fields = count_w_fields()?;
     let w_stdout = Stdio::piped();
-    let mut w_output = Command::new("w")
-        .arg("-hus")
-        .stdout(w_stdout).spawn()?;
+    let mut w_output = Command::new("w").arg("-hus").stdout(w_stdout).spawn()?;
     let _ = w_output.wait()?;
-    let w_stdout = w_output.stdout
+    let w_stdout = w_output
+        .stdout
         .ok_or(CircadianError("w command has no output".into()))?;
     // idle field is the second to last
     let awk_output = Command::new("awk")
@@ -549,7 +584,12 @@ fn idle_w() -> IdleResult {
 fn idle_fn(cmd: &str, args: Vec<&str>) -> IdleResult {
     let mut display_mins: Vec<u32> = Vec::<u32>::new();
     let (w_args, from_idx) = w_from_args()?;
-    println_vb4!("cmd: {} / w args: '{}' / w field: {}", cmd, w_args, from_idx);
+    println_vb4!(
+        "cmd: {} / w args: '{}' / w field: {}",
+        cmd,
+        w_args,
+        from_idx
+    );
     for device in glob("/tmp/.X11-unix/X*")? {
         println_vb4!("  - socket: {:?}", device);
         let device: String = match device {
@@ -560,47 +600,44 @@ fn idle_fn(cmd: &str, args: Vec<&str>) -> IdleResult {
         println_vb4!("    - display: {}", display);
         let mut output = Command::new("w")
             .arg(&w_args)
-            .stdout(Stdio::piped()).spawn()?;
+            .stdout(Stdio::piped())
+            .spawn()?;
         let _ = output.wait()?;
-        let w_stdout = output.stdout
+        let w_stdout = output
+            .stdout
             .ok_or(CircadianError("w command has no output".into()))?;
         let awk_arg = format!("{{if (${} ~ /^{}/) print $1}}", from_idx + 1, display);
-        let output = Command::new("awk")
-            .arg(awk_arg)
-            .stdin(w_stdout)
-            .output()?;
-        let user_str = String::from_utf8(output.stdout)
-            .unwrap_or(String::new());
-        println_vb4!("    - awk users ({}): {}", user_str.len(), user_str.replace("\n", " / "));
+        let output = Command::new("awk").arg(awk_arg).stdin(w_stdout).output()?;
+        let user_str = String::from_utf8(output.stdout).unwrap_or(String::new());
+        println_vb4!(
+            "    - awk users ({}): {}",
+            user_str.len(),
+            user_str.replace("\n", " / ")
+        );
 
         // Get a list of all system users with open sessions to this
         // X11 display, and de-duplicate by storing in a set.  There
         // should be one per logged in user if a session manager is in
         // use, plus one for each terminal the user has open.
-        let user_list: HashSet<&str> = user_str.split("\n")
+        let user_list: HashSet<&str> = user_str
+            .split("\n")
             .map(|x| x.trim())
             .filter(|x| x.len() > 0)
             .collect();
         // Convert all of the user names to UIDs.
-        let mut user_list: HashSet<u32> = user_list.iter()
+        let mut user_list: HashSet<u32> = user_list
+            .iter()
             .filter_map(|x| match x.trim() {
-                user if user.len() > 0 => {
-                    match Command::new("id").arg("-u").arg(user).output() {
-                        Ok(output) => {
-                            let mut uid = String::from_utf8(output.stdout)
-                                .unwrap_or(String::new());
-                            uid.pop();
-                            let uid = uid.parse::<u32>().unwrap_or(0);
-                            Some(uid)
-                        },
-                        Err(_) => {
-                            None
-                        }
+                user if user.len() > 0 => match Command::new("id").arg("-u").arg(user).output() {
+                    Ok(output) => {
+                        let mut uid = String::from_utf8(output.stdout).unwrap_or(String::new());
+                        uid.pop();
+                        let uid = uid.parse::<u32>().unwrap_or(0);
+                        Some(uid)
                     }
+                    Err(_) => None,
                 },
-                _ => {
-                    None
-                }
+                _ => None,
             })
             .collect();
         // Insert the UID of the socket owner, too.  This covers X
@@ -623,24 +660,29 @@ fn idle_fn(cmd: &str, args: Vec<&str>) -> IdleResult {
                 .uid(uid)
                 .env("DISPLAY", &display)
                 .env("XAUTHORITY", &xauth)
-                .output() {
-                    Ok(output) => {
-                        let mut idle_str = String::from_utf8(output.stdout)
-                            .unwrap_or(String::new());
-                        idle_str.pop();
-                        let idle = idle_str.parse::<u32>().unwrap_or(u32::MAX)/1000;
-                        println_vb4!("      - idle: {}", idle);
-                        display_mins.push(idle);
-                    },
-                    Err(e) => {
-                        println!("WARNING: {} failed for socket {} with error: {}", cmd, device, e);
-                    },
+                .output()
+            {
+                Ok(output) => {
+                    let mut idle_str = String::from_utf8(output.stdout).unwrap_or(String::new());
+                    idle_str.pop();
+                    let idle = idle_str.parse::<u32>().unwrap_or(u32::MAX) / 1000;
+                    println_vb4!("      - idle: {}", idle);
+                    display_mins.push(idle);
                 }
+                Err(e) => {
+                    println!(
+                        "WARNING: {} failed for socket {} with error: {}",
+                        cmd, device, e
+                    );
+                }
+            }
         }
     }
     match display_mins.len() {
         0 => Err(CircadianError("No displays found.".to_string())),
-        _ => Ok(display_mins.iter().fold(u32::MAX, |acc, x| std::cmp::min(acc,*x)))
+        _ => Ok(display_mins
+            .iter()
+            .fold(u32::MAX, |acc, x| std::cmp::min(acc, *x))),
     }
 }
 
@@ -654,7 +696,6 @@ fn idle_xssstate() -> IdleResult {
     idle_fn("xssstate", vec!["-i"])
 }
 
-
 /// Compare whether 'uptime' 5-min CPU usage compares
 /// to the given thresh with the given cmp function.
 ///
@@ -662,22 +703,25 @@ fn idle_xssstate() -> IdleResult {
 ///     if the 5-min CPU usage is less than 0.1 for the past minute
 ///
 fn thresh_cpu<C>(history: CpuHistory, thresh: f64, cmp: C) -> ThreshResult
-    where C: Fn(&f64, &f64) -> bool {
-    let output = Command::new("uptime")
-        .output()?;
-    let uptime_str = String::from_utf8(output.stdout)
-        .unwrap_or(String::new());
+where
+    C: Fn(&f64, &f64) -> bool,
+{
+    let output = Command::new("uptime").output()?;
+    let uptime_str = String::from_utf8(output.stdout).unwrap_or(String::new());
     let columns: Vec<&str> = uptime_str.split(" ").collect();
-    let cpu_usages: Vec<f64> = columns.iter()
-        .rev().take(3).map(|x| *x).collect::<Vec<&str>>().iter()
+    let cpu_usages: Vec<f64> = columns
+        .iter()
+        .rev()
+        .take(3)
+        .map(|x| *x)
+        .collect::<Vec<&str>>()
+        .iter()
         .rev()
         .map(|x| *x)
         .filter(|x| x.len() > 0)
-        .map(|x| str::parse::<f64>(&x[0..x.len()-1].replace(",",".")).unwrap_or(0.0))
+        .map(|x| str::parse::<f64>(&x[0..x.len() - 1].replace(",", ".")).unwrap_or(0.0))
         .collect::<Vec<f64>>();
-    let idle: Vec<bool> = cpu_usages.iter()
-        .map(|x| cmp(x, &thresh))
-        .collect();
+    let idle: Vec<bool> = cpu_usages.iter().map(|x| cmp(x, &thresh)).collect();
     // idle is bools of [1min, 5min, 15min] CPU usage
     let idx = match history {
         CpuHistory::Min1 => 0,
@@ -690,13 +734,11 @@ fn thresh_cpu<C>(history: CpuHistory, thresh: f64, cmp: C) -> ThreshResult
 
 /// Determine whether a process (by name regex) is running.
 fn exist_process(prc: &str) -> ExistResult {
-    let output = Command::new("pgrep")
-        .arg("-c")
-        .arg(prc)
-        .output()?;
-    let output = &output.stdout[0..output.stdout.len()-1];
+    let output = Command::new("pgrep").arg("-c").arg(prc).output()?;
+    let output = &output.stdout[0..output.stdout.len() - 1];
     let count: u32 = String::from_utf8(output.to_vec())
-        .unwrap_or(String::new()).parse::<u32>()?;
+        .unwrap_or(String::new())
+        .parse::<u32>()?;
     Ok(count > 0)
 }
 
@@ -705,17 +747,21 @@ fn exist_net_connection(conn: NetConnection) -> ExistResult {
     let mut output = Command::new("netstat")
         .arg("-tnpa")
         .stderr(Stdio::null())
-        .stdout(Stdio::piped()).spawn()?;
+        .stdout(Stdio::piped())
+        .spawn()?;
     let _ = output.wait()?;
-    let stdout = output.stdout
+    let stdout = output
+        .stdout
         .ok_or(CircadianError("netstat command has no output".to_string()))?;
     let mut output = Command::new("grep")
         .arg("ESTABLISHED")
         .stdin(stdout)
-        .stdout(Stdio::piped()).spawn()?;
+        .stdout(Stdio::piped())
+        .spawn()?;
     let _ = output.wait()?;
-    let stdout = output.stdout
-        .ok_or(CircadianError("netstat command has no connections".to_string()))?;
+    let stdout = output.stdout.ok_or(CircadianError(
+        "netstat command has no connections".to_string(),
+    ))?;
     let pattern = match conn {
         NetConnection::SSH => "[0-9]+/ssh[d]*",
         NetConnection::SMB => "[0-9]+/smb[d]*",
@@ -726,12 +772,8 @@ fn exist_net_connection(conn: NetConnection) -> ExistResult {
         .arg(pattern)
         .stdin(stdout)
         .output()?;
-    let output = String::from_utf8(output.stdout)
-        .unwrap_or(String::new());
-    let connections: Vec<&str> = output
-        .split("\n")
-        .filter(|l| l.len() > 0)
-        .collect();
+    let output = String::from_utf8(output.stdout).unwrap_or(String::new());
+    let connections: Vec<&str> = output.split("\n").filter(|l| l.len() > 0).collect();
     Ok(connections.len() > 0)
 }
 
@@ -743,18 +785,15 @@ fn exist_audio_alsa() -> ExistResult {
             let mut cat_output = Command::new("cat")
                 .arg(path)
                 .stderr(Stdio::null())
-                .stdout(Stdio::piped()).spawn()?;
+                .stdout(Stdio::piped())
+                .spawn()?;
             let _ = cat_output.wait()?;
-            let stdout = cat_output.stdout
+            let stdout = cat_output
+                .stdout
                 .ok_or(CircadianError("cat /proc/asound/* failed".to_string()))?;
-            let output = Command::new("grep")
-                .arg("state:")
-                .stdin(stdout)
-                .output()?;
+            let output = Command::new("grep").arg("state:").stdin(stdout).output()?;
             let output_str = String::from_utf8(output.stdout)?;
-            let lines: Vec<&str> = output_str.split("\n")
-                .filter(|l| l.len() > 0)
-                .collect();
+            let lines: Vec<&str> = output_str.split("\n").filter(|l| l.len() > 0).collect();
             count += lines.len();
         }
     }
@@ -763,13 +802,11 @@ fn exist_audio_alsa() -> ExistResult {
 
 /// Determine whether audio is actively playing on any Pulseaudio interface.
 fn exist_audio_pulseaudio() -> ExistResult {
-    let users_output = Command::new("users")
-        .stderr(Stdio::null())
-        .output();
-    let users_stdout = users_output
-        .map_err(| _ | CircadianError("users failed".to_string()));
+    let users_output = Command::new("users").stderr(Stdio::null()).output();
+    let users_stdout = users_output.map_err(|_| CircadianError("users failed".to_string()));
     let users_output_str = String::from_utf8(users_stdout?.stdout)?;
-    let active_users: HashSet<&str> = users_output_str.split(" ")
+    let active_users: HashSet<&str> = users_output_str
+        .split(" ")
         .filter(|l| l.len() > 0)
         .collect();
 
@@ -778,27 +815,27 @@ fn exist_audio_pulseaudio() -> ExistResult {
         match get_user_by_name(&active_user.trim()) {
             Some(x) => {
                 let active_user_id = x.uid();
-                let mut pactl_output = Command::new("pactl").uid(active_user_id)
+                let mut pactl_output = Command::new("pactl")
+                    .uid(active_user_id)
                     .env("XDG_RUNTIME_DIR", format!("/run/user/{}", active_user_id))
                     .args(["list", "sinks", "short"])
                     .stderr(Stdio::null())
-                    .stdout(Stdio::piped()).spawn()?;
+                    .stdout(Stdio::piped())
+                    .spawn()?;
                 let _ = pactl_output.wait()?;
-                let stdout = pactl_output.stdout
+                let stdout = pactl_output
+                    .stdout
                     .ok_or(CircadianError("pactl failed".to_string()))?;
                 let output = Command::new("grep")
                     .arg("RUNNING") // Does not includes IDLE == Paused audio
                     .stdin(stdout)
                     .output()?;
                 let output_str = String::from_utf8(output.stdout)?;
-                let lines: Vec<&str> = output_str.split("\n")
-                    .filter(|l| l.len() > 0)
-                    .collect();
+                let lines: Vec<&str> = output_str.split("\n").filter(|l| l.len() > 0).collect();
                 count += lines.len();
-            },
-            None    => continue,
+            }
+            None => continue,
         }
-
     }
     Ok(count > 0)
 }
@@ -827,7 +864,7 @@ struct CircadianLaunchOptions {
     verbosity: u8,
 }
 
-#[derive(Default,Debug)]
+#[derive(Default, Debug)]
 struct CircadianConfig {
     verbosity: usize,
     idle_time: u64,
@@ -851,20 +888,25 @@ fn read_config(file_path: &str) -> Result<CircadianConfig, CircadianError> {
     let mut config: CircadianConfig = Default::default();
 
     fn parse_time(s: Option<&str>, default: u64) -> u64 {
-        s.map_or(default, |x| if x.len() > 0 {
-            let (body,suffix) = x.split_at(x.len()-1);
-            let num: u64 = match suffix {
-                "m" => body.parse::<u64>().unwrap_or(0) * 60,
-                "h" => body.parse::<u64>().unwrap_or(0) * 60 * 60,
-                _ => x.parse::<u64>().unwrap_or(default),
-            };
-            num
-        } else {default})
+        s.map_or(default, |x| {
+            if x.len() > 0 {
+                let (body, suffix) = x.split_at(x.len() - 1);
+                let num: u64 = match suffix {
+                    "m" => body.parse::<u64>().unwrap_or(0) * 60,
+                    "h" => body.parse::<u64>().unwrap_or(0) * 60 * 60,
+                    _ => x.parse::<u64>().unwrap_or(default),
+                };
+                num
+            } else {
+                default
+            }
+        })
     }
     if let Some(section) = i.section(Some("actions".to_owned())) {
-        let verbosity: usize = section.get("verbosity")
+        let verbosity: usize = section
+            .get("verbosity")
             .and_then(|x| match x {
-                x if x.len() > 0 => { x.parse::<usize>().ok() },
+                x if x.len() > 0 => x.parse::<usize>().ok(),
                 _ => None,
             })
             .unwrap_or(0);
@@ -874,16 +916,35 @@ fn read_config(file_path: &str) -> Result<CircadianConfig, CircadianError> {
 
         config.idle_time = parse_time(section.get("idle_time"), 0);
         config.unblock_delay = parse_time(section.get("unblock_delay"), 0);
-        config.auto_wake = section.get("auto_wake")
-            .and_then(|x| if x.len() > 0 {Some(x.to_owned())} else {None});
-        config.on_idle = section.get("on_idle")
-            .and_then(|x| if x.len() > 0 {Some(x.to_owned())} else {None});
-        config.on_wake = section.get("on_wake")
-            .and_then(|x| if x.len() > 0 {Some(x.to_owned())} else {None});
+        config.auto_wake = section.get("auto_wake").and_then(|x| {
+            if x.len() > 0 {
+                Some(x.to_owned())
+            } else {
+                None
+            }
+        });
+        config.on_idle = section.get("on_idle").and_then(|x| {
+            if x.len() > 0 {
+                Some(x.to_owned())
+            } else {
+                None
+            }
+        });
+        config.on_wake = section.get("on_wake").and_then(|x| {
+            if x.len() > 0 {
+                Some(x.to_owned())
+            } else {
+                None
+            }
+        });
     }
-    fn read_bool(s: &ini::Properties,
-                 key: &str) -> bool {
-        match s.get(key).unwrap_or(&"no".to_string()).to_lowercase().as_str() {
+    fn read_bool(s: &ini::Properties, key: &str) -> bool {
+        match s
+            .get(key)
+            .unwrap_or(&"no".to_string())
+            .to_lowercase()
+            .as_str()
+        {
             "yes" | "true" | "1" => true,
             _ => false,
         }
@@ -895,13 +956,16 @@ fn read_config(file_path: &str) -> Result<CircadianConfig, CircadianError> {
         config.smb_block = read_bool(section, "smb_block");
         config.nfs_block = read_bool(section, "nfs_block");
         config.audio_block = read_bool(section, "audio_block");
-        config.max_cpu_load = section.get("max_cpu_load")
-            .and_then(|x| if x.len() > 0
-                      {Some(x.parse::<f64>().unwrap_or(999.0))} else {None});
+        config.max_cpu_load = section.get("max_cpu_load").and_then(|x| {
+            if x.len() > 0 {
+                Some(x.parse::<f64>().unwrap_or(999.0))
+            } else {
+                None
+            }
+        });
         if let Some(proc_str) = section.get("process_block") {
             let proc_list = proc_str.split(",");
-            config.process_block = proc_list
-                .map(|x| x.trim().to_owned()).collect();
+            config.process_block = proc_list.map(|x| x.trim().to_owned()).collect();
         }
     }
     Ok(config)
@@ -913,16 +977,17 @@ fn test_idle(config: &CircadianConfig, start: i64) -> IdleResponse {
     let xssstate = idle_xssstate();
     let xprintidle = idle_xprintidle();
     let tty_idle = *tty.as_ref().unwrap_or(&u32::MAX);
-    let x11_idle = std::cmp::min(*xssstate.as_ref().unwrap_or(&u32::MAX),
-                                 *xprintidle.as_ref().unwrap_or(&u32::MAX));
+    let x11_idle = std::cmp::min(
+        *xssstate.as_ref().unwrap_or(&u32::MAX),
+        *xprintidle.as_ref().unwrap_or(&u32::MAX),
+    );
     let wake_remain = std::cmp::max(0, start + (config.idle_time as i64) - now) as u32;
     let min_idle: u32 = match (config.tty_input, config.x11_input) {
-        (true,true) => std::cmp::min(tty_idle, x11_idle) as u32,
-        (true,false) => tty_idle as u32,
-        (false,_) => x11_idle as u32,
+        (true, true) => std::cmp::min(tty_idle, x11_idle) as u32,
+        (true, false) => tty_idle as u32,
+        (false, _) => x11_idle as u32,
     };
-    let idle_remain: u64 =
-            std::cmp::max(config.idle_time as i64 - min_idle as i64, 0) as u64;
+    let idle_remain: u64 = std::cmp::max(config.idle_time as i64 - min_idle as i64, 0) as u64;
     IdleResponse {
         w_idle: tty,
         w_enabled: config.tty_input,
@@ -960,21 +1025,23 @@ fn test_nonidle(
     let nfs_enabled = config.nfs_block;
     let audio = exist_audio();
     let audio_enabled = config.audio_block;
-    let procs = config.process_block.iter()
-    // Run 'exist_process' on each process string
+    let procs = config
+        .process_block
+        .iter()
+        // Run 'exist_process' on each process string
         .map(|p| exist_process(p))
-    // Flatten into a single result with a Vec of bools
+        // Flatten into a single result with a Vec of bools
         .collect::<Result<Vec<bool>, CircadianError>>()
-    // Flatten Vec of bools into a single bool
-        .map(|x| x.iter().fold(false, |acc,p| acc || *p));
+        // Flatten Vec of bools into a single bool
+        .map(|x| x.iter().fold(false, |acc, p| acc || *p));
     let procs_enabled = config.process_block.len() > 0;
 
-    let checks_blocking = (cpu_load_enabled && *cpu_load.as_ref().unwrap_or(&true)) ||
-        (ssh_enabled && *ssh.as_ref().unwrap_or(&true)) ||
-        (smb_enabled && *smb.as_ref().unwrap_or(&true)) ||
-        (nfs_enabled && *nfs.as_ref().unwrap_or(&true)) ||
-        (audio_enabled && *audio.as_ref().unwrap_or(&true)) ||
-        (procs_enabled && *procs.as_ref().unwrap_or(&true));
+    let checks_blocking = (cpu_load_enabled && *cpu_load.as_ref().unwrap_or(&true))
+        || (ssh_enabled && *ssh.as_ref().unwrap_or(&true))
+        || (smb_enabled && *smb.as_ref().unwrap_or(&true))
+        || (nfs_enabled && *nfs.as_ref().unwrap_or(&true))
+        || (audio_enabled && *audio.as_ref().unwrap_or(&true))
+        || (procs_enabled && *procs.as_ref().unwrap_or(&true));
 
     let blocked;
     let unblock_delay_remain;
@@ -1051,7 +1118,7 @@ fn auto_wake_to_epoch(auto_wake: &str) -> Result<AutoWakeEpoch, CircadianError> 
     // defined as taking UTC timestamps.
     Ok(AutoWakeEpoch {
         epoch: target_time_local.unix_timestamp(),
-        is_utc: true
+        is_utc: true,
     })
 }
 fn set_rtc_wakealarm(timestamp: i64) -> Result<(), CircadianError> {
@@ -1083,7 +1150,10 @@ fn set_auto_wake(auto_wake: Option<&String>) -> Result<AutoWakeEpoch, CircadianE
     Ok(epoch)
 }
 
-fn reschedule_auto_wake(auto_wake: Option<&String>, current_epoch: Option<AutoWakeEpoch>) -> Option<AutoWakeEpoch> {
+fn reschedule_auto_wake(
+    auto_wake: Option<&String>,
+    current_epoch: Option<AutoWakeEpoch>,
+) -> Option<AutoWakeEpoch> {
     let mut new_rtc: Option<AutoWakeEpoch> = current_epoch.clone();
     if auto_wake.is_none() || current_epoch.is_none() {
         return None;
@@ -1094,12 +1164,15 @@ fn reschedule_auto_wake(auto_wake: Option<&String>, current_epoch: Option<AutoWa
         false => match time::OffsetDateTime::now_local() {
             Ok(l) => l.unix_timestamp(),
             _ => time::OffsetDateTime::now_utc().unix_timestamp(),
-        }
+        },
     };
     if now >= epoch.epoch {
         new_rtc = match set_auto_wake(auto_wake) {
             Ok(epoch) => Some(epoch),
-            Err(e) => {println!("Error recheduling auto-wake timer: {}.  Disabled.", e); None},
+            Err(e) => {
+                println!("Error recheduling auto-wake timer: {}.  Disabled.", e);
+                None
+            }
         };
     }
     new_rtc
@@ -1113,7 +1186,10 @@ fn test() {
     println!("w min: {:?}", idle_w());
     println!("xssstate min: {:?}", idle_xssstate());
     println!("xprintidle min: {:?}", idle_xprintidle());
-    println!("cpu: {:?}", thresh_cpu(CpuHistory::Min5, 0.3, std::cmp::PartialOrd::lt));
+    println!(
+        "cpu: {:?}",
+        thresh_cpu(CpuHistory::Min5, 0.3, std::cmp::PartialOrd::lt)
+    );
     println!("ssh: {:?}", exist_net_connection(NetConnection::SSH));
     println!("smb: {:?}", exist_net_connection(NetConnection::SMB));
     println!("nfs: {:?}", exist_net_connection(NetConnection::NFS));
@@ -1123,12 +1199,11 @@ fn test() {
 
 fn main() {
     let launch_opts = CircadianLaunchOptions::parse();
-    let config = read_config(&launch_opts.config_file)
-        .unwrap_or_else(|x| {
-            println!("{}", x);
-            println!("Could not open config file.  Exiting.");
-            std::process::exit(1);
-        });
+    let config = read_config(&launch_opts.config_file).unwrap_or_else(|x| {
+        println!("{}", x);
+        println!("Could not open config file.  Exiting.");
+        std::process::exit(1);
+    });
     println!("Circadian launching.");
     println!("{:?}", config);
 
@@ -1159,23 +1234,25 @@ fn main() {
         println!("'w' command required by tty_input failed.  Exiting.");
         std::process::exit(1);
     }
-    if config.x11_input &&
-        !command_exists("xssstate") &&
-        !command_exists("xprintidle") {
-            println!("Both 'xssstate' and 'xprintidle' commands required by x11_input failed.  Exiting.");
-            std::process::exit(1);
-        }
-    if config.max_cpu_load.is_some() &&
-        thresh_cpu(CpuHistory::Min1, 0.0, std::cmp::PartialOrd::lt).is_err() {
-            println!("'uptime' command required by max_cpu_load failed.  Exiting.");
-            std::process::exit(1);
-        }
-    if (config.ssh_block || config.smb_block || config.nfs_block) &&
-        exist_net_connection(NetConnection::SSH).is_err() {
+    if config.x11_input && !command_exists("xssstate") && !command_exists("xprintidle") {
+        println!(
+            "Both 'xssstate' and 'xprintidle' commands required by x11_input failed.  Exiting."
+        );
+        std::process::exit(1);
+    }
+    if config.max_cpu_load.is_some()
+        && thresh_cpu(CpuHistory::Min1, 0.0, std::cmp::PartialOrd::lt).is_err()
+    {
+        println!("'uptime' command required by max_cpu_load failed.  Exiting.");
+        std::process::exit(1);
+    }
+    if (config.ssh_block || config.smb_block || config.nfs_block)
+        && exist_net_connection(NetConnection::SSH).is_err()
+    {
         println!("'netstat' command required by ssh/smb/nfs_block failed.  Exiting.");
         std::process::exit(1);
-        }
-    if config.audio_block && (exist_audio_alsa().is_err() && exist_audio_pulseaudio().is_err())  {
+    }
+    if config.audio_block && (exist_audio_alsa().is_err() && exist_audio_pulseaudio().is_err()) {
         println!("'/proc/asound/' and pactl required by audio_block is unreadable. Exiting.");
         std::process::exit(1);
     }
@@ -1189,7 +1266,10 @@ fn main() {
     }
     let mut current_rtc: Option<AutoWakeEpoch> = match set_auto_wake(config.auto_wake.as_ref()) {
         Ok(epoch) => Some(epoch),
-        Err(e) => {println!("Error setting auto-wake timer: {}", e); None},
+        Err(e) => {
+            println!("Error setting auto-wake timer: {}", e);
+            None
+        }
     };
     let _ = register_sigusr1().unwrap_or_else(|x| {
         println!("{}", x);
@@ -1217,19 +1297,19 @@ fn main() {
                 println!("Idle state active:\n{}{}", idle, tests);
                 if let Some(ref idle_cmd) = config.on_idle {
                     println!("System suspending.");
-                    let status = Command::new("sh")
-                        .arg("-c")
-                        .arg(idle_cmd)
-                        .status();
+                    let status = Command::new("sh").arg("-c").arg(idle_cmd).status();
                     match status {
-                        Ok(_) => { println!("Idle command succeeded."); },
-                        Err(e) => { println!("Idle command failed: {}", e); },
+                        Ok(_) => {
+                            println!("Idle command succeeded.");
+                        }
+                        Err(e) => {
+                            println!("Idle command failed: {}", e);
+                        }
                     }
                 }
                 idle_triggered = true;
             }
-        }
-        else {
+        } else {
             idle_triggered = false;
             // We are no longer blocked - unset
             is_blocked = false;
@@ -1241,7 +1321,7 @@ fn main() {
         // Sleep for the minimum time needed before the system can possibly
         // be idle, but do it in small chunks so we can periodically check
         // for signals and clock jumps.
-        for _ in 0 .. sleep_time / sleep_chunk {
+        for _ in 0..sleep_time / sleep_chunk {
             // Print stats when SIGUSR1 signal received
             let signaled = SIGUSR_SIGNALED.swap(false, Ordering::SeqCst);
             if signaled {
@@ -1260,13 +1340,14 @@ fn main() {
                 println!("Idle state on wake:\n{}{}", idle, tests);
                 if let Some(ref wake_cmd) = config.on_wake {
                     println!("System waking.");
-                    let status = Command::new("sh")
-                        .arg("-c")
-                        .arg(wake_cmd)
-                        .status();
+                    let status = Command::new("sh").arg("-c").arg(wake_cmd).status();
                     match status {
-                        Ok(_) => { println!("Wake command succeeded."); },
-                        Err(e) => { println!("Wake command failed: {}", e); },
+                        Ok(_) => {
+                            println!("Wake command succeeded.");
+                        }
+                        Err(e) => {
+                            println!("Wake command failed: {}", e);
+                        }
                     }
                 }
             }
